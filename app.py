@@ -5,9 +5,8 @@ import streamlit as st
 import tempfile
 
 import promoai
-from promoai.general_utils.app_utils import InputType, ViewType, DISCOVERY_HELP
-from promoai.general_utils.ai_providers import AI_MODEL_DEFAULTS, AI_HELP_DEFAULTS, MAIN_HELP, \
-    DEFAULT_AI_PROVIDER
+from promoai.general_utils.app_utils import InputType, ViewType
+from promoai.general_utils.ai_providers import AI_MODEL_DEFAULTS, DEFAULT_AI_PROVIDER, TOGETHER_MODELS
 from pm4py import read_xes, read_pnml, read_bpmn, convert_to_petri_net, convert_to_bpmn
 from pm4py.util import constants
 from pm4py.objects.petri_net.exporter.variants.pnml import export_petri_as_string
@@ -16,301 +15,400 @@ from pm4py.visualization.bpmn import visualizer as bpmn_visualizer
 from pm4py.objects.bpmn.layout import layouter as bpmn_layouter
 from pm4py.objects.bpmn.exporter.variants.etree import get_xml_string
 
+# Set page configuration
+st.set_page_config(
+    page_title="Process Modeling with Generative AI",
+    page_icon="⭐",
+    layout="wide"
+)
 
-
-def run_model_generator_app():
-    subprocess.run(['streamlit', 'run', __file__])
-
+# Custom CSS with RED theme
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 1rem;
+        color: #8B0000;  /* Dark Red */
+    }
+    .sub-header {
+        font-size: 1.5rem;
+        font-weight: 500;
+        margin-bottom: 1rem;
+        color: #A52A2A;  /* Brown Red */
+    }
+    .stButton>button {
+        background-color: #B22222;  /* FireBrick Red */
+        color: white;
+        font-weight: 500;
+        border-radius: 4px;
+        padding: 0.5rem 1rem;
+        border: none;
+    }
+    .stButton>button:hover {
+        background-color: #8B0000;  /* Dark Red */
+    }
+    .success-message {
+        background-color: #FFEBEE;  /* Light Red */
+        color: #B71C1C;  /* Deep Red */
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+        border-left: 5px solid #B71C1C;
+    }
+    .info-box {
+        background-color: #FFEBEE;  /* Light Red */
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+        border-left: 5px solid #EF5350;  /* Medium Red */
+    }
+    .feedback-box {
+        background-color: #FFCDD2;  /* Slightly deeper light red */
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+        border-left: 5px solid #E53935;  /* Medium-Dark Red */
+    }
+    .st-bx {
+        border: 1px solid #FFCDD2;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: #FFEBEE;
+        border-radius: 4px 4px 0 0;
+        color: #B71C1C;
+        padding: 10px 20px;
+        border: 1px solid #FFCDD2;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #EF5350;
+        color: white;
+    }
+    /* Red outline on inputs */
+    div[data-baseweb="select"] > div,
+    .stSlider [data-baseweb="slider"],
+    .stTextInput > div > div,
+    .stTextArea > div > div,
+    .stFileUploader > div {
+        border: 1px solid #FFCDD2;
+        border-radius: 4px;
+    }
+    .stTextInput > div:focus-within, 
+    .stTextArea > div:focus-within {
+        border-color: #E53935;
+    }
+    /* Expander header */
+    .streamlit-expanderHeader {
+        background-color: #FFEBEE;
+        border: 1px solid #FFCDD2;
+        color: #B71C1C;
+    }
+    /* Red theme for progress bar */
+    .stProgress > div > div {
+        background-color: #EF5350;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 def run_app():
-    st.title('🤖 ProMoAI')
-
-    st.subheader(
-        "Process Modeling with Generative AI"
-    )
-
-    temp_dir = "temp"
-
-    if 'provider' not in st.session_state:
-        st.session_state['provider'] = DEFAULT_AI_PROVIDER
-
-    if 'model_name' not in st.session_state:
-        st.session_state['model_name'] = AI_MODEL_DEFAULTS[st.session_state['provider']]
-
-    def update_model_name():
-        st.session_state['model_name'] = AI_MODEL_DEFAULTS[st.session_state['provider']]
-
-    with st.expander("🔧 Configuration", expanded=True):
-        provider = st.radio(
-            "Choose AI Provider:",
-            options=AI_MODEL_DEFAULTS.keys(),
-            index=0,
-            horizontal=True,
-            help=MAIN_HELP,
-            on_change=update_model_name,
-            key='provider',
-        )
-
-        if 'model_name' not in st.session_state or st.session_state['provider'] != provider:
-            st.session_state['model_name'] = AI_MODEL_DEFAULTS[provider]
-
-        col1, col2 = st.columns(2)
-        with col1:
-            ai_model_name = st.text_input("Enter the AI model name:",
-                                          key='model_name',
-                                          help=AI_HELP_DEFAULTS[st.session_state['provider']])
-        with col2:
-            api_key = st.text_input("API key:", type="password")
-
+    # Header
+    st.markdown('<div class="main-header">🔥 Process Modeling with Generative AI</div>', unsafe_allow_html=True)
+    
+    # About section in expander
+    with st.expander("ℹ️ About this application"):
+        st.markdown("""
+        This application uses generative AI to automatically create process models from textual descriptions. 
+        It leverages the Ollama framework to run local AI models, allowing you to:
+        
+        - Generate BPMN process models from text descriptions
+        - Provide feedback to refine the generated models
+        - Export models in standard formats (BPMN, PNML)
+        
+        This tool was developed as part of an internship project focused on improving business process modeling through AI.
+        
+        **Available Models:**
+        - **Gemma 3 (4B)**: Good for simple processes
+        - **DeepSeek Coder**: Best for complex processes with many activities
+        - **DeepCoder**: Optimized for logical structures and decision flows
+        """)
+    
+    # Initialize session state
+    if 'model_gen' not in st.session_state:
+        st.session_state['model_gen'] = None
+    if 'feedback' not in st.session_state:
+        st.session_state['feedback'] = []
     if 'selected_mode' not in st.session_state:
         st.session_state['selected_mode'] = "Model Generation"
+# Configuration section
+st.markdown('<div class="sub-header">⚙️ Configuration</div>', unsafe_allow_html=True)
 
-    input_type = st.radio("Select Input Type:",
-                          options=[InputType.TEXT.value, InputType.MODEL.value, InputType.DATA.value], horizontal=True)
+from promoai.general_utils.ai_providers import TOGETHER_MODELS
 
+# Show model selection dropdown
+model_name = st.selectbox(
+    "Select Together AI Model:",
+    options=list(TOGETHER_MODELS.keys()),
+    index=0,
+    format_func=lambda x: f"{x.split('/')[-1]} - {TOGETHER_MODELS[x]}",
+    help="Select the model to use for process modeling"
+)
+
+# API Key input
+api_key = st.text_input(
+    "Together API Key:",
+    type="password",
+    placeholder="Enter your Together API key here",
+    help="Get your API key from together.ai"
+)
+
+if not api_key:
+    st.warning("⚠️ Please enter your Together API key to use the service.")
+    # Input type selection
+    st.markdown('<div class="sub-header">📝 Input Selection</div>', unsafe_allow_html=True)
+    
+    input_type = st.radio(
+        "Select Input Type:",
+        options=[InputType.TEXT.value, InputType.MODEL.value, InputType.DATA.value], 
+        horizontal=True,
+        index=0
+    )
+    
     if input_type != st.session_state['selected_mode']:
         st.session_state['selected_mode'] = input_type
         st.session_state['model_gen'] = None
         st.session_state['feedback'] = []
         st.rerun()
-
+    
+    # Input form
+    st.markdown('<div class="sub-header">🔍 Process Specification</div>', unsafe_allow_html=True)
+    
     with st.form(key='model_gen_form'):
         if input_type == InputType.TEXT.value:
-            description = st.text_area("For **process modeling**, enter the process description:")
-            submit_button = st.form_submit_button(label='Run')
+            st.markdown('<div class="info-box">Describe your business process in natural language. Be specific about activities, decision points, and flow relationships.</div>', unsafe_allow_html=True)
+            
+            description = st.text_area(
+                "Process Description:", 
+                height=200,
+                placeholder="Example: A customer orders a product online. After the order is received, payment processing and inventory check happen in parallel. If the product is available and payment is successful, the order is shipped. Otherwise, the customer is notified about the issue..."
+            )
+            
+            submit_button = st.form_submit_button(label='Generate Process Model')
             if submit_button:
-                try:
-                    process_model = promoai.generate_model_from_text(description,
-                                                                     api_key=api_key,
-                                                                     ai_model=ai_model_name,
-                                                                     ai_provider=provider)
-
-                    st.session_state['model_gen'] = process_model
-                    st.session_state['feedback'] = []
-                except Exception as e:
-                    st.error(body=str(e), icon="⚠️")
-                    return
-
+                with st.spinner("🧠 The AI is creating your process model..."):
+                    try:
+                        process_model = promoai.generate_model_from_text(
+                            description,
+                            api_key="",  # No API key needed for Ollama
+                            ai_model=model_name,
+                            ai_provider=DEFAULT_AI_PROVIDER
+                        )
+                        
+                        st.session_state['model_gen'] = process_model
+                        st.session_state['feedback'] = []
+                    except Exception as e:
+                        st.error(body=str(e), icon="⚠️")
+                        pass
+        
         elif input_type == InputType.DATA.value:
-            uploaded_log = st.file_uploader("For **process model discovery**, upload an event log:",
-                                            type=["xes", "xes.gz"],
-                                            help=DISCOVERY_HELP)
-            submit_button = st.form_submit_button(label='Run')
+            st.markdown('<div class="info-box">Upload an event log in XES format to discover a process model.</div>', unsafe_allow_html=True)
+            
+            uploaded_log = st.file_uploader(
+                "Upload event log (XES):",
+                type=["xes", "xes.gz"]
+            )
+            
+            submit_button = st.form_submit_button(label='Discover Process Model')
             if submit_button:
                 if uploaded_log is None:
-                    st.error(body="No file is selected!", icon="⚠️")
-                    return
-                try:
-                    contents = uploaded_log.read()
-                    os.makedirs(temp_dir, exist_ok=True)
-                    with tempfile.NamedTemporaryFile(mode="wb", delete=False,
-                                                     dir=temp_dir, suffix=uploaded_log.name) as temp_file:
-                        temp_file.write(contents)
-                        log = read_xes(temp_file.name, variant="rustxes")
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-
-                    process_model = promoai.generate_model_from_event_log(log)
-
-                    st.session_state['model_gen'] = process_model
-                    st.session_state['feedback'] = []
-                except Exception as e:
-                    shutil.rmtree(temp_dir, ignore_errors=True)
-                    st.error(body=f"Error during discovery: {e}", icon="⚠️")
-                    return
+                    st.error(body="Please upload an event log file first", icon="⚠️")
+                    pass
+                
+                with st.spinner("⏳ Discovering process model from event log..."):
+                    try:
+                        temp_dir = "temp"
+                        contents = uploaded_log.read()
+                        os.makedirs(temp_dir, exist_ok=True)
+                        
+                        with tempfile.NamedTemporaryFile(mode="wb", delete=False,
+                                                         dir=temp_dir, suffix=uploaded_log.name) as temp_file:
+                            temp_file.write(contents)
+                            log = read_xes(temp_file.name, variant="rustxes")
+                        
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        process_model = promoai.generate_model_from_event_log(log)
+                        st.session_state['model_gen'] = process_model
+                        st.session_state['feedback'] = []
+                    except Exception as e:
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        st.error(body=f"Error during discovery: {e}", icon="⚠️")
+                        st.stop()
+        
         elif input_type == InputType.MODEL.value:
+            st.markdown('<div class="info-box">Upload an existing BPMN or Petri net model to refine it.</div>', unsafe_allow_html=True)
+            
             uploaded_file = st.file_uploader(
-                "For **process model improvement**, upload a semi-block-structured BPMN or Petri net:",
+                "Upload existing process model:",
                 type=["bpmn", "pnml"]
             )
-            submit_button = st.form_submit_button(label='Upload')
+            
+            submit_button = st.form_submit_button(label='Load Model')
             if submit_button:
                 if uploaded_file is None:
-                    st.error(body="No file is selected!", icon="⚠️")
-                    return
-                else:
+                    st.error(body="Please upload a model file first", icon="⚠️")
+                    pass
+                
+                with st.spinner("⏳ Loading and processing the model..."):
                     try:
+                        temp_dir = "temp"
                         file_extension = uploaded_file.name.split(".")[-1].lower()
-
+                        contents = uploaded_file.read()
+                        
+                        os.makedirs(temp_dir, exist_ok=True)
                         if file_extension == "bpmn":
-                            contents = uploaded_file.read()
-
-                            os.makedirs(temp_dir, exist_ok=True)
                             with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".bpmn",
-                                                             dir=temp_dir) as temp_file:
+                                                            dir=temp_dir) as temp_file:
                                 temp_file.write(contents)
-
                                 bpmn_graph = read_bpmn(temp_file.name)
                                 process_model = promoai.generate_model_from_bpmn(bpmn_graph)
-                            shutil.rmtree(temp_dir, ignore_errors=True)
-
+                                
                         elif file_extension == "pnml":
-                            contents = uploaded_file.read()
-
-                            os.makedirs(temp_dir, exist_ok=True)
                             with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".pnml",
-                                                             dir=temp_dir) as temp_file:
+                                                            dir=temp_dir) as temp_file:
                                 temp_file.write(contents)
                                 pn, im, fm = read_pnml(temp_file.name)
                                 process_model = promoai.generate_model_from_petri_net(pn)
-
-                            shutil.rmtree(temp_dir, ignore_errors=True)
-
-                        else:
-                            st.error(body=f"Unsupported file format {file_extension}!", icon="⚠️")
-                            return
-
+                                
+                        shutil.rmtree(temp_dir, ignore_errors=True)
                         st.session_state['model_gen'] = process_model
                         st.session_state['feedback'] = []
                     except Exception as e:
                         if os.path.exists(temp_dir):
                             shutil.rmtree(temp_dir, ignore_errors=True)
-                        st.error(body="Please upload a semi-block-structured model!", icon="⚠️")
-                        return
-
+                        st.error(body=f"Error processing model: {e}", icon="⚠️")
+    
+    # Display the generated model
     if 'model_gen' in st.session_state and st.session_state['model_gen']:
-
-        st.success("Model generated successfully!", icon="🎉")
-
-        col1, col2 = st.columns(2)
-
+        st.markdown('<div class="success-message">✅ Process model successfully generated!</div>', unsafe_allow_html=True)
+        
+        # Results section
+        st.markdown('<div class="sub-header">🔄 Model Results</div>', unsafe_allow_html=True)
+        
+        # Create tabs for different views
+        tab1, tab2 = st.tabs(["Visualization & Export", "Feedback & Refinement"])
+        
         try:
-            with col1:
-                with st.form(key='feedback_form'):
-                    feedback = st.text_area("Feedback:", value="")
-                    if st.form_submit_button(label='Update Model'):
-                        try:
-                            process_model = st.session_state['model_gen']
-                            process_model.update(feedback, api_key=api_key, ai_model=ai_model_name,
-                                                 ai_provider=provider)
-                            st.session_state['model_gen'] = process_model
-                        except Exception as e:
-                            raise Exception("Update failed! " + str(e))
-                        st.session_state['feedback'].append(feedback)
-
-                    if len(st.session_state['feedback']) > 0:
-                        with st.expander("Feedback History", expanded=True):
-                            i = 0
-                            for f in st.session_state['feedback']:
-                                i = i + 1
-                                st.write("[" + str(i) + "] " + f + "\n\n")
-
-            with col2:
-                st.write("Export Model")
+            with tab1:
+                # Visualization options
+                view_option = st.selectbox(
+                    "Select visualization format:", 
+                    [v_type.value for v_type in ViewType],
+                    index=0
+                )
+                
+                # Prepare visualization
                 process_model_obj = st.session_state['model_gen']
                 powl = process_model_obj.get_powl()
                 pn, im, fm = convert_to_petri_net(powl)
                 bpmn = convert_to_bpmn(pn, im, fm)
                 bpmn = bpmn_layouter.apply(bpmn)
-
+                
+                # Generate visualization
+                image_format = "svg"
+                if view_option == ViewType.POWL.value:
+                    from pm4py.visualization.powl import visualizer
+                    vis_str = visualizer.apply(powl, parameters={'format': image_format})
+                elif view_option == ViewType.PETRI.value:
+                    visualization = pn_visualizer.apply(pn, im, fm, parameters={'format': image_format})
+                    vis_str = visualization.pipe(format='svg').decode('utf-8')
+                else:  # BPMN
+                    from pm4py.objects.bpmn.layout import layouter
+                    layouted_bpmn = layouter.apply(bpmn)
+                    visualization = bpmn_visualizer.apply(layouted_bpmn, parameters={'format': image_format})
+                    vis_str = visualization.pipe(format='svg').decode('utf-8')
+                
+                # Display visualization in a container with border
+                st.markdown("<div style='border:1px solid #FFCDD2; padding:10px; border-radius:4px;'>", unsafe_allow_html=True)
+                st.image(vis_str)
+                st.markdown("</div>", unsafe_allow_html=True)
+                
+                # Export options
+                st.markdown("### Export Options")
                 download_1, download_2 = st.columns(2)
+                
                 with download_1:
-                    bpmn_data = get_xml_string(bpmn,
-                                               parameters={"encoding": constants.DEFAULT_ENCODING})
+                    bpmn_data = get_xml_string(bpmn, parameters={"encoding": constants.DEFAULT_ENCODING})
                     st.download_button(
-                        label="Download BPMN",
+                        label="📥 Download BPMN",
                         data=bpmn_data,
                         file_name="process_model.bpmn",
                         mime="application/xml"
                     )
-
+                
                 with download_2:
                     pn_data = export_petri_as_string(pn, im, fm)
                     st.download_button(
-                        label="Download PNML",
+                        label="📥 Download PNML",
                         data=pn_data,
                         file_name="process_model.pnml",
                         mime="application/xml"
                     )
-
-            view_option = st.selectbox("Select a view:", [v_type.value for v_type in ViewType])
-
-            image_format = str("svg").lower()
-            if view_option == ViewType.POWL.value:
-                from pm4py.visualization.powl import visualizer
-                vis_str = visualizer.apply(powl,
-                                           parameters={'format': image_format})
-
-            elif view_option == ViewType.PETRI.value:
-                visualization = pn_visualizer.apply(pn, im, fm,
-                                                    parameters={'format': image_format})
-                vis_str = visualization.pipe(format='svg').decode('utf-8')
-            else:  # BPMN
-                from pm4py.objects.bpmn.layout import layouter
-                layouted_bpmn = layouter.apply(bpmn)
-                visualization = bpmn_visualizer.apply(layouted_bpmn,
-                                                      parameters={'format': image_format})
-                vis_str = visualization.pipe(format='svg').decode('utf-8')
-
-            with st.expander("View Image", expanded=True):
-                st.image(vis_str)
-
+                
+                # Show model code
+                with st.expander("View Generated Python Code"):
+                    st.code(process_model_obj.get_code(), language="python")
+            
+            with tab2:
+                st.markdown('<div class="feedback-box">💬 Provide feedback to refine the model</div>', unsafe_allow_html=True)
+                
+                # Feedback form
+                with st.form(key='feedback_form'):
+                    feedback = st.text_area(
+                        "Suggest improvements or corrections:",
+                        placeholder="Example: Add a decision point after payment verification...",
+                        height=150
+                    )
+                    
+                    if st.form_submit_button(label='🔄 Update Model'):
+                        with st.spinner("🔄 Refining the process model..."):
+                            try:
+                                process_model = st.session_state['model_gen']
+                                process_model.update(
+                                    feedback, 
+                                    api_key="",  # No API key needed
+                                    ai_model=model_name,
+                                    ai_provider=DEFAULT_AI_PROVIDER
+                                )
+                                st.session_state['model_gen'] = process_model
+                                st.session_state['feedback'].append(feedback)
+                                st.success("Model updated successfully!")
+                            except Exception as e:
+                                st.error(f"Update failed: {e}")
+                
+                # Display feedback history
+                if len(st.session_state['feedback']) > 0:
+                    st.markdown("### Feedback History")
+                    for i, fb in enumerate(st.session_state['feedback']):
+                        st.markdown(f"**Feedback #{i+1}:**")
+                        st.markdown(f"<div style='background-color:#FFCDD2; padding:10px; border-radius:4px; border-left:5px solid #E53935;'>{fb}</div>", unsafe_allow_html=True)
+        
         except Exception as e:
-            st.error(icon='⚠️', body=str(e))
+            st.error(f"Error displaying model: {e}")
 
+    # Footer
+    st.markdown("""
+    <div style="position:fixed; bottom:0; width:100%; background-color:#FFEBEE; padding:10px; text-align:center; border-top:1px solid #FFCDD2;">
+        <p style="color:#B71C1C; margin:0;">
+            Developed as part of an internship project on applying AI to business process modeling
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Add space to account for footer
+    st.markdown("<div style='margin-bottom:40px'></div>", unsafe_allow_html=True)
 
-def footer():
-    style = """
-        <style>
-          .footer-container { 
-              position: fixed;
-              left: 0;
-              bottom: 0;
-              width: 100%;
-              text-align: center;
-              padding: 15px 0;
-              background-color: white;
-              border-top: 2px solid lightgrey;
-              z-index: 100;
-          }
-
-          .footer-text, .header-text {
-              margin: 0;
-              padding: 0;
-          }
-          .footer-links {
-              margin: 0;
-              padding: 0;
-          }
-          .footer-links a {
-              margin: 0 10px;
-              text-decoration: none;
-              color: blue;
-          }
-          .footer-links img {
-              vertical-align: middle;
-          }
-        </style>
-        """
-
-    foot = f"""
-        <div class='footer-container'>
-            <div class='footer-text'>
-                Developed by 
-                <a href="https://www.linkedin.com/in/humam-kourani-98b342232/" target="_blank" style="text-decoration:none;">Humam Kourani</a>
-                and 
-                <a href="https://www.linkedin.com/in/alessandro-berti-2a483766/" target="_blank" style="text-decoration:none;">Alessandro Berti</a>
-                at the
-                <a href="https://www.fit.fraunhofer.de/" target="_blank" style="text-decoration:none;">Fraunhofer Institute for Applied Information Technology FIT</a>.
-            </div>
-            <div class='footer-links'>
-                <a href="https://doi.org/10.24963/ijcai.2024/1014" target="_blank">
-                    <img src="https://img.shields.io/badge/ProMoAI:%20Process%20Modeling%20with%20Generative%20AI-gray?logo=googledocs&logoColor=white&labelColor=red" alt="ProMoAI Paper">
-                </a>
-                <a href="mailto:humam.kourani@fit.fraunhofer.de?cc=a.berti@pads.rwth-aachen.de;" target="_blank">
-                    <img src="https://img.shields.io/badge/Email-gray?logo=minutemailer&logoColor=white&labelColor=green" alt="Email Humam Kourani">
-                </a>
-            </div>
-        </div>
-        """
-
-    st.markdown(style, unsafe_allow_html=True)
-    st.markdown(foot, unsafe_allow_html=True)
-
-
+# Run the app
 if __name__ == "__main__":
-    st.set_page_config(
-        page_title="ProMoAI",
-        page_icon="🤖"
-    )
-    footer()
     run_app()
