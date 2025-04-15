@@ -6,7 +6,7 @@ import tempfile
 
 import promoai
 from promoai.general_utils.app_utils import InputType, ViewType
-from promoai.general_utils.ai_providers import AI_MODEL_DEFAULTS, DEFAULT_AI_PROVIDER, TOGETHER_MODELS
+from promoai.general_utils.ai_providers import AI_MODEL_DEFAULTS, DEFAULT_AI_PROVIDER, TOGETHER_MODELS, OLLAMA_MODELS, AIProviders
 from pm4py import read_xes, read_pnml, read_bpmn, convert_to_petri_net, convert_to_bpmn
 from pm4py.util import constants
 from pm4py.objects.petri_net.exporter.variants.pnml import export_petri_as_string
@@ -114,14 +114,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def run_app():
-    # Header
+    from promoai.general_utils.ai_providers import TOGETHER_MODELS, OLLAMA_MODELS, AIProviders
+
     st.markdown('<div class="main-header">🔥 Process Modeling with Generative AI</div>', unsafe_allow_html=True)
     
     # About section in expander
     with st.expander("ℹ️ About this application"):
         st.markdown("""
         This application uses generative AI to automatically create process models from textual descriptions. 
-        It leverages the Ollama framework to run local AI models, allowing you to:
+        It leverages both local and cloud-based AI models, allowing you to:
         
         - Generate BPMN process models from text descriptions
         - Provide feedback to refine the generated models
@@ -130,9 +131,16 @@ def run_app():
         This tool was developed as part of an internship project focused on improving business process modeling through AI.
         
         **Available Models:**
+        
+        Ollama (Local):
         - **Gemma 3 (4B)**: Good for simple processes
         - **DeepSeek Coder**: Best for complex processes with many activities
         - **DeepCoder**: Optimized for logical structures and decision flows
+        
+        Together AI (Cloud):
+        - **Llama 3 (70B)**: High-quality process modeling for complex scenarios
+        - **Llama 4 Scout (17B)**: Latest model with enhanced reasoning for processes
+        - **Mixtral 8x7B**: Balanced performance for various process types
         """)
     
     # Initialize session state
@@ -142,31 +150,53 @@ def run_app():
         st.session_state['feedback'] = []
     if 'selected_mode' not in st.session_state:
         st.session_state['selected_mode'] = "Model Generation"
-# Configuration section
-st.markdown('<div class="sub-header">⚙️ Configuration</div>', unsafe_allow_html=True)
+    if 'ai_provider' not in st.session_state:
+        st.session_state['ai_provider'] = AIProviders.TOGETHER.value
 
-from promoai.general_utils.ai_providers import TOGETHER_MODELS
+    # Configuration section
+    st.markdown('<div class="sub-header">⚙️ Configuration</div>', unsafe_allow_html=True)
 
-# Show model selection dropdown
-model_name = st.selectbox(
-    "Select Together AI Model:",
-    options=list(TOGETHER_MODELS.keys()),
-    index=0,
-    format_func=lambda x: f"{x.split('/')[-1]} - {TOGETHER_MODELS[x]}",
-    help="Select the model to use for process modeling"
-)
+    from promoai.general_utils.ai_providers import TOGETHER_MODELS, OLLAMA_MODELS, AIProviders
 
-# API Key input
-api_key = st.text_input(
-    "Together API Key:",
-    type="password",
-    placeholder="Enter your Together API key here",
-    help="Get your API key from together.ai"
-)
+    # Provider selection
+    ai_provider = st.selectbox(
+        "Select AI Provider:",
+        options=[AIProviders.OLLAMA.value, AIProviders.TOGETHER.value],
+        index=0,
+        help="Choose between local Ollama models or cloud-based Together AI models"
+    )
 
-if not api_key:
-    st.warning("⚠️ Please enter your Together API key to use the service.")
-    # Input type selection
+    # Show model selection dropdown based on provider
+    if ai_provider == AIProviders.TOGETHER.value:
+        model_name = st.selectbox(
+            "Select Together AI Model:",
+            options=list(TOGETHER_MODELS.keys()),
+            index=0,
+            format_func=lambda x: f"{x.split('/')[-1]} - {TOGETHER_MODELS[x]}",
+            help="Select the model to use for process modeling"
+        )
+        
+        # API Key input
+        api_key = st.text_input(
+            "Together API Key:",
+            type="password",
+            placeholder="Enter your Together API key here",
+            help="Get your API key from together.ai"
+        )
+        
+        if not api_key:
+            st.warning("⚠️ Please enter your Together API key to use the service.")
+    else:
+        model_name = st.selectbox(
+            "Select Ollama Model:",
+            options=list(OLLAMA_MODELS.keys()),
+            index=0,
+            format_func=lambda x: f"{x} - {OLLAMA_MODELS[x]}",
+            help="Select the model to use for process modeling"
+        )
+        api_key = ""  # Not needed for Ollama
+    
+    # Input type selection - MOVED OUTSIDE THE ELSE BLOCK
     st.markdown('<div class="sub-header">📝 Input Selection</div>', unsafe_allow_html=True)
     
     input_type = st.radio(
@@ -197,20 +227,23 @@ if not api_key:
             
             submit_button = st.form_submit_button(label='Generate Process Model')
             if submit_button:
-                with st.spinner("🧠 The AI is creating your process model..."):
-                    try:
-                        process_model = promoai.generate_model_from_text(
-                            description,
-                            api_key="",  # No API key needed for Ollama
-                            ai_model=model_name,
-                            ai_provider=DEFAULT_AI_PROVIDER
-                        )
-                        
-                        st.session_state['model_gen'] = process_model
-                        st.session_state['feedback'] = []
-                    except Exception as e:
-                        st.error(body=str(e), icon="⚠️")
-                        pass
+                if ai_provider == AIProviders.TOGETHER.value and not api_key:
+                    st.error("⚠️ Please enter your Together API key to use the Together AI service.")
+                else:
+                    with st.spinner("🧠 The AI is creating your process model..."):
+                        try:
+                            process_model = promoai.generate_model_from_text(
+                                description,
+                                api_key=api_key,
+                                ai_model=model_name,
+                                ai_provider=ai_provider
+                            )
+                            
+                            st.session_state['model_gen'] = process_model
+                            st.session_state['feedback'] = []
+                        except Exception as e:
+                            st.error(body=str(e), icon="⚠️")
+                            pass
         
         elif input_type == InputType.DATA.value:
             st.markdown('<div class="info-box">Upload an event log in XES format to discover a process model.</div>', unsafe_allow_html=True)
@@ -242,7 +275,8 @@ if not api_key:
                         st.session_state['model_gen'] = process_model
                         st.session_state['feedback'] = []
                     except Exception as e:
-                        shutil.rmtree(temp_dir, ignore_errors=True)
+                        if os.path.exists(temp_dir):
+                            shutil.rmtree(temp_dir, ignore_errors=True)
                         st.error(body=f"Error during discovery: {e}", icon="⚠️")
                         st.stop()
         
@@ -372,20 +406,23 @@ if not api_key:
                     )
                     
                     if st.form_submit_button(label='🔄 Update Model'):
-                        with st.spinner("🔄 Refining the process model..."):
-                            try:
-                                process_model = st.session_state['model_gen']
-                                process_model.update(
-                                    feedback, 
-                                    api_key="",  # No API key needed
-                                    ai_model=model_name,
-                                    ai_provider=DEFAULT_AI_PROVIDER
-                                )
-                                st.session_state['model_gen'] = process_model
-                                st.session_state['feedback'].append(feedback)
-                                st.success("Model updated successfully!")
-                            except Exception as e:
-                                st.error(f"Update failed: {e}")
+                        if ai_provider == AIProviders.TOGETHER.value and not api_key:
+                            st.error("⚠️ Please enter your Together API key to use the Together AI service.")
+                        else:
+                            with st.spinner("🔄 Refining the process model..."):
+                                try:
+                                    process_model = st.session_state['model_gen']
+                                    process_model.update(
+                                        feedback, 
+                                        api_key=api_key,
+                                        ai_model=model_name,
+                                        ai_provider=ai_provider
+                                    )
+                                    st.session_state['model_gen'] = process_model
+                                    st.session_state['feedback'].append(feedback)
+                                    st.success("Model updated successfully!")
+                                except Exception as e:
+                                    st.error(f"Update failed: {e}")
                 
                 # Display feedback history
                 if len(st.session_state['feedback']) > 0:
